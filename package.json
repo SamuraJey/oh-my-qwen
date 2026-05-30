@@ -23,7 +23,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "npm run clean && tsc -p tsconfig.json",
+    "build": "npm run clean && tsc -p tsconfig.json && chmod +x dist/cli/omq.js dist/cli/omq-nessy.js dist/scripts/qwen-native-hook.js",
     "test": "npm run build && node --test \"dist/**/*.test.js\"",
     "prepack": "npm run build",
     "pack:smoke": "npm pack --dry-run",

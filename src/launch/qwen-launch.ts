@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { constants as osConstants } from 'node:os';
 import path from 'node:path';
 import { ensureStateTree, getStatePaths } from '../state/paths.js';
@@ -13,6 +13,10 @@ export const OMQ_LAUNCH_POLICY_ENV = 'OMQ_LAUNCH_POLICY';
 export const OMQ_SESSION_ID_ENV = 'OMQ_SESSION_ID';
 export const OMQ_ENGINE_ENV = 'OMQ_ENGINE';
 export const OMQ_TMUX_BIN_ENV = 'OMQ_TMUX_BIN';
+export const OMQ_LAUNCH_HOLD_SECONDS_ENV = 'OMQ_LAUNCH_HOLD_SECONDS';
+
+const DEFAULT_QUICK_EXIT_HOLD_SECONDS = 10;
+const DEFAULT_STALE_ENV_FILE_MAX_AGE_MS = 10 * 60 * 1000;
 
 export interface LaunchPolicySplit {
   explicitPolicy?: QwenLaunchPolicy;
@@ -88,6 +92,14 @@ export function resolveEnvLaunchPolicyOverride(env: NodeJS.ProcessEnv = process.
   return undefined;
 }
 
+export function resolveQuickExitHoldSeconds(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env[OMQ_LAUNCH_HOLD_SECONDS_ENV]?.trim();
+  if (!raw) return DEFAULT_QUICK_EXIT_HOLD_SECONDS;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value)) return DEFAULT_QUICK_EXIT_HOLD_SECONDS;
+  return Math.max(0, Math.min(value, 3600));
+}
+
 export function resolveEffectiveLaunchPolicyOverride(args: string[], env: NodeJS.ProcessEnv = process.env): QwenLaunchPolicy | undefined {
   return splitLaunchPolicyArgs(args).explicitPolicy ?? resolveEnvLaunchPolicyOverride(env);
 }
@@ -110,8 +122,8 @@ export function resolveQwenLaunchPolicy(
   explicitPolicy?: QwenLaunchPolicy,
 ): QwenLaunchPolicy {
   if (explicitPolicy === 'direct') return 'direct';
-  if (env.TMUX) return 'inside-tmux';
   if (explicitPolicy === 'detached-tmux') return tmuxAvailable ? 'detached-tmux' : 'direct';
+  if (env.TMUX) return 'inside-tmux';
   if (platform === 'win32') return 'direct';
   if (!stdinIsTTY || !stdoutIsTTY) return 'direct';
   return tmuxAvailable ? 'detached-tmux' : 'direct';
@@ -149,18 +161,46 @@ export function launchEnvFilePath(cwd: string, sessionId: string): string {
   return path.join(getStatePaths(cwd).root, 'runtime', 'tmux-env', `${safe}.env`);
 }
 
+export function cleanupStaleLaunchEnvFiles(cwd: string, maxAgeMs = DEFAULT_STALE_ENV_FILE_MAX_AGE_MS, now = Date.now()): number {
+  const dir = path.join(getStatePaths(cwd).root, 'runtime', 'tmux-env');
+  let removed = 0;
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    if (!entry.endsWith('.env')) continue;
+    const target = path.join(dir, entry);
+    try {
+      const stat = statSync(target);
+      if (maxAgeMs <= 0 || now - stat.mtimeMs > maxAgeMs) {
+        rmSync(target, { force: true });
+        removed += 1;
+      }
+    } catch {
+      // Ignore races with the tmux leader removing its own env file.
+    }
+  }
+  return removed;
+}
+
 export function writeLaunchEnvFile(cwd: string, sessionId: string, env: NodeJS.ProcessEnv): string {
+  cleanupStaleLaunchEnvFiles(cwd);
   const filePath = launchEnvFilePath(cwd, sessionId);
   mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   writeFileSync(filePath, serializeLaunchEnv(env), { encoding: 'utf8', mode: 0o600 });
   return filePath;
 }
 
-export function buildDetachedLeaderCommand(sessionName: string, qwenCommand: string, qwenArgs: string[], envFilePath: string): string {
+export function buildDetachedLeaderCommand(sessionName: string, qwenCommand: string, qwenArgs: string[], envFilePath: string, quickExitHoldSeconds = DEFAULT_QUICK_EXIT_HOLD_SECONDS): string {
   const qwenCmd = buildShellCommand(qwenCommand, qwenArgs);
   const envFile = quoteShellArg(envFilePath);
   const escapedSession = sessionName.replace(/["\\$`]/g, '\\$&');
+  const holdSeconds = Math.max(0, Math.min(Math.trunc(quickExitHoldSeconds), 3600));
   const script = [
+    `trap 'rm -f ${envFile} 2>/dev/null || true' EXIT HUP INT TERM`,
     `if [ -r ${envFile} ]; then . ${envFile}; rm -f ${envFile}; fi`,
     'omq_qwen_started_at=$(date +%s 2>/dev/null || printf 0)',
     `${qwenCmd}`,
@@ -168,11 +208,11 @@ export function buildDetachedLeaderCommand(sessionName: string, qwenCommand: str
     'omq_qwen_finished_at=$(date +%s 2>/dev/null || printf 0)',
     'omq_qwen_elapsed=$((omq_qwen_finished_at - omq_qwen_started_at))',
     `rm -f ${envFile} 2>/dev/null || true`,
-    'if [ "$omq_qwen_status" -eq 0 ] && [ "$omq_qwen_elapsed" -le 2 ]; then',
-    '  printf "\\n[omq] qwen exited immediately with code 0 during startup. Press Enter to close this OMQ tmux session.\\n" >&2',
+    `if [ "$omq_qwen_status" -eq 0 ] && [ "$omq_qwen_elapsed" -le ${holdSeconds} ]; then`,
+    `  printf "\\n[omq] qwen exited after %ss with code 0 during startup. Press Enter to close this OMQ tmux session.\\n" "$omq_qwen_elapsed" >&2`,
     '  IFS= read -r _omq_close || true',
     'elif [ "$omq_qwen_status" -gt 0 ] && [ "$omq_qwen_status" -lt 128 ]; then',
-    '  printf "\\n[omq] qwen exited with code %s. Press Enter to close this OMQ tmux session.\\n" "$omq_qwen_status" >&2',
+    '  printf "\\n[omq] qwen exited with code %s after %ss. Press Enter to close this OMQ tmux session.\\n" "$omq_qwen_status" "$omq_qwen_elapsed" >&2',
     '  IFS= read -r _omq_close || true',
     'fi',
     'if [ "$omq_qwen_status" -eq 0 ]; then',
@@ -233,6 +273,22 @@ function spawnQwenBlocking(command: string, args: string[], cwd: string, env: No
   return spawnSyncImpl(command, args, { cwd, env, stdio: 'inherit' });
 }
 
+function shouldWarnAboutQuickDirectExit(exitCode: number, elapsedMs: number, holdSeconds: number): boolean {
+  if (exitCode !== 0) return true;
+  return holdSeconds > 0 && elapsedMs <= holdSeconds * 1000;
+}
+
+function writeDirectExitDiagnostic(policy: QwenLaunchPolicy, exitCode: number, elapsedMs: number, command: string, args: string[], holdSeconds: number): void {
+  if (!shouldWarnAboutQuickDirectExit(exitCode, elapsedMs, holdSeconds)) return;
+  const elapsedSeconds = Math.max(0, elapsedMs / 1000).toFixed(1);
+  const renderedArgs = args.length ? ` ${args.map(quoteShellArg).join(' ')}` : '';
+  const reason = exitCode === 0
+    ? `qwen exited after ${elapsedSeconds}s with code 0 during startup`
+    : `qwen exited after ${elapsedSeconds}s with code ${exitCode}`;
+  process.stderr.write(`[omq] ${reason} (${policy}). Command: ${quoteShellArg(command)}${renderedArgs}\n`);
+  process.stderr.write('[omq] Try `omq --direct` to see raw Qwen output, or run `qwen` directly to confirm the underlying CLI stays open.\n');
+}
+
 export async function runInteractiveQwenLaunch(rawArgs: string[], options: QwenLaunchOptions): Promise<QwenLaunchResult> {
   const env = options.env ?? process.env;
   const sessionId = options.sessionId ?? randomSessionId();
@@ -240,6 +296,7 @@ export async function runInteractiveQwenLaunch(rawArgs: string[], options: QwenL
   const explicitPolicy = split.explicitPolicy ?? resolveEnvLaunchPolicyOverride(env);
   const spawnSyncImpl = options.spawnSyncImpl ?? spawnSync;
   const tmuxAvailable = options.tmuxAvailable ?? isTmuxAvailable(env, spawnSyncImpl);
+  const quickExitHoldSeconds = resolveQuickExitHoldSeconds(env);
   const policy = resolveQwenLaunchPolicy(
     env,
     options.platform ?? process.platform,
@@ -263,7 +320,9 @@ export async function runInteractiveQwenLaunch(rawArgs: string[], options: QwenL
   }, options.cwd, env);
 
   if (policy === 'direct' || policy === 'inside-tmux') {
+    const startedAt = Date.now();
     const result = spawnQwenBlocking(command, split.remainingArgs, options.cwd, launchEnv, spawnSyncImpl);
+    const elapsedMs = Date.now() - startedAt;
     const exitCode = exitCodeFromSpawn(result);
     await writeModeState('launch', {
       active: false,
@@ -274,12 +333,13 @@ export async function runInteractiveQwenLaunch(rawArgs: string[], options: QwenL
       exit_code: exitCode,
     }, options.cwd, env);
     if (result.error) throw result.error;
+    writeDirectExitDiagnostic(policy, exitCode, elapsedMs, command, split.remainingArgs, quickExitHoldSeconds);
     return { policy, sessionId, exitCode, signal: result.signal, command, args: split.remainingArgs, cwd: options.cwd };
   }
 
   const sessionName = buildTmuxSessionName(options.cwd, sessionId);
   const envFile = writeLaunchEnvFile(options.cwd, sessionId, launchEnv);
-  const leaderCommand = buildDetachedLeaderCommand(sessionName, command, split.remainingArgs, envFile);
+  const leaderCommand = buildDetachedLeaderCommand(sessionName, command, split.remainingArgs, envFile, quickExitHoldSeconds);
   const tmuxBin = resolveTmuxBinary(env);
   const newSessionArgs = buildDetachedTmuxNewSessionArgs(sessionName, options.cwd, leaderCommand, launchEnv);
   let tmuxPaneId: string | undefined;
@@ -297,8 +357,21 @@ export async function runInteractiveQwenLaunch(rawArgs: string[], options: QwenL
       tmux_session_name: sessionName,
       tmux_pane_id: tmuxPaneId,
     }, options.cwd, env);
-    const attached = spawnSyncImpl(tmuxBin, ['attach-session', '-t', sessionName], { cwd: options.cwd, env: launchEnv, stdio: 'inherit' });
+    const attachArgs = env.TMUX ? ['switch-client', '-t', sessionName] : ['attach-session', '-t', sessionName];
+    const attached = spawnSyncImpl(tmuxBin, attachArgs, { cwd: options.cwd, env: launchEnv, stdio: 'inherit' });
     const exitCode = exitCodeFromSpawn(attached);
+    if (env.TMUX && exitCode === 0 && !attached.error) {
+      await writeModeState('launch', {
+        active: true,
+        status: 'tmux-switched',
+        policy,
+        session_id: sessionId,
+        tmux_session_name: sessionName,
+        tmux_pane_id: tmuxPaneId,
+        exit_code: exitCode,
+      }, options.cwd, env);
+      return { policy, sessionId, sessionName, exitCode, signal: attached.signal, command, args: split.remainingArgs, cwd: options.cwd, tmuxPaneId };
+    }
     await writeModeState('launch', {
       active: false,
       status: exitCode === 0 ? 'finished' : 'failed',
@@ -314,7 +387,9 @@ export async function runInteractiveQwenLaunch(rawArgs: string[], options: QwenL
   } catch (error) {
     rmSync(envFile, { force: true });
     process.stderr.write(`[omq] warning: tmux launch failed (${error instanceof Error ? error.message : String(error)}). Falling back to direct Qwen launch.\n`);
+    const startedAt = Date.now();
     const result = spawnQwenBlocking(command, split.remainingArgs, options.cwd, launchEnv, spawnSyncImpl);
+    const elapsedMs = Date.now() - startedAt;
     const exitCode = exitCodeFromSpawn(result);
     await writeModeState('launch', {
       active: false,
@@ -326,6 +401,7 @@ export async function runInteractiveQwenLaunch(rawArgs: string[], options: QwenL
       exit_code: exitCode,
     }, options.cwd, env);
     if (result.error) throw result.error;
+    writeDirectExitDiagnostic('direct', exitCode, elapsedMs, command, split.remainingArgs, quickExitHoldSeconds);
     return { policy: 'direct', fallback: 'direct-after-tmux-failure', sessionId, sessionName, exitCode, signal: result.signal, command, args: split.remainingArgs, cwd: options.cwd, tmuxPaneId };
   }
 }

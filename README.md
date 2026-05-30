@@ -33,7 +33,7 @@ omq doctor --scope project
 
 See [Local installation](./docs/local-install.md) for project/user scope setup, dry-run, uninstall, and real Qwen smoke tests.
 
-`omq setup` materializes a Qwen extension at either `~/.qwen/extensions/oh-my-qwen` or `.qwen/extensions/oh-my-qwen`, then upserts only OMQ-owned hook entries in the selected Qwen `settings.json`.
+`omq setup` materializes a Qwen extension at either `~/.qwen/extensions/oh-my-qwen` or `.qwen/extensions/oh-my-qwen`, then upserts only OMQ-owned hook entries in the selected Qwen `settings.json`. For project scope, Qwen Code 0.17 loads project commands/skills/agents from `.qwen/{commands,skills,agents}`, so setup also writes generated project-visible mirrors there; `/extensions` visibility requires user scope.
 
 ## Commands
 
@@ -70,7 +70,9 @@ OMQ_LAUNCH_POLICY=direct omq
 OMQ_LAUNCH_POLICY=tmux omq
 ```
 
-When launched from inside an existing tmux pane, `omq` runs Qwen in the current pane with `OMQ_SESSION_ID`/`.omq` state. Outside tmux, supported interactive terminals get a detached tmux session named `omq-*` and then attach to it. Non-interactive shells fall back to direct mode.
+When launched from inside an existing tmux pane, plain `omq` runs Qwen in the current pane with `OMQ_SESSION_ID`/`.omq` state. Explicit `omq --tmux` creates an `omq-*` session and switches the current tmux client to it. Outside tmux, supported interactive terminals get a detached tmux session named `omq-*` and then attach to it. Non-interactive shells fall back to direct mode.
+
+If Qwen exits during startup, the tmux session is held open briefly so the error remains visible. Tune this with `OMQ_LAUNCH_HOLD_SECONDS=30 omq --tmux`. Detached tmux launch preserves the parent shell environment through a private `.omq/runtime/tmux-env/*.env` file, sources it inside the leader shell, and removes it during startup so provider credentials are available without being printed in tmux command arguments.
 
 ## Nessy fork wrapper
 

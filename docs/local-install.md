@@ -31,7 +31,7 @@ omq version
 
 ## Install the Qwen extension/plugin files
 
-Project-local installation writes `.qwen/extensions/oh-my-qwen`, `.qwen/settings.json`, and `.omq/` in the current project:
+Project-local installation writes `.qwen/extensions/oh-my-qwen`, generated project-visible mirrors in `.qwen/{commands,skills,agents}`, `.qwen/settings.json`, and `.omq/` in the current project:
 
 ```bash
 cd /path/to/your/project
@@ -56,6 +56,8 @@ Inside Qwen Code, optional checks:
 /skills
 /agents
 ```
+
+Note: Qwen Code 0.17 lists installed extensions from `${QWEN_HOME:-~/.qwen}/extensions`, so `qwen extensions list` can still say `No extensions installed` after project-scope setup. That is expected for project scope; the generated commands and skills are visible through the project `.qwen/{commands,skills,agents}` mirrors. Use `omq setup --scope user` if you specifically need `/extensions` / `qwen extensions list` visibility.
 
 ## Real execution smoke
 
@@ -84,9 +86,18 @@ OMQ_LAUNCH_POLICY=direct omq
 
 Policy behavior:
 
-- inside an existing tmux pane: run Qwen in that pane;
+- plain `omq` inside an existing tmux pane: run Qwen in that pane;
+- explicit `omq --tmux` inside tmux: create an `omq-*` session and switch the current client to it;
 - outside tmux with an attached TTY and tmux available: create/attach an `omq-*` detached tmux session;
 - non-interactive or no tmux: run Qwen directly.
+
+If Qwen exits immediately, `omq --tmux` keeps the pane open for a short diagnostic window. Increase it with:
+
+```bash
+OMQ_LAUNCH_HOLD_SECONDS=30 omq --tmux
+```
+
+Detached tmux launch preserves the parent shell environment through a private `.omq/runtime/tmux-env/*.env` file, sources it inside the leader shell, and removes it during startup. This keeps provider credentials available without printing them in tmux command arguments.
 
 ## Nessy fork wrapper
 

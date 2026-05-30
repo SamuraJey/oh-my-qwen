@@ -104,10 +104,25 @@ function printSetupSummary(result: Awaited<ReturnType<typeof setup>>): void {
     `  created: ${result.extension.created.length}`,
     `  updated: ${result.extension.updated.length}`,
     `  unchanged: ${result.extension.unchanged.length}`,
+  ];
+  if (result.extension.skipped.length) lines.push(`  skipped: ${result.extension.skipped.length}`);
+  if (result.extension.projectMirror) {
+    const mirror = result.extension.projectMirror;
+    lines.push(
+      `project surfaces: ${mirror.rootDir}`,
+      `  created: ${mirror.created.length}`,
+      `  updated: ${mirror.updated.length}`,
+      `  unchanged: ${mirror.unchanged.length}`,
+      `  skipped: ${mirror.skipped.length}`,
+    );
+    if (mirror.skipped.length) lines.push('  WARNING: existing non-generated project command/skill/agent files were left untouched. Re-run with --force-project to overwrite after backup.');
+    lines.push('  note: Qwen Code loads project commands/skills/agents from .qwen/{commands,skills,agents}; project .qwen/extensions is kept as package metadata.');
+  }
+  lines.push(
     `settings: ${result.settings.settingsPath}`,
     `  changed: ${result.settings.changed}`,
     `  hooks disabled: ${result.settings.disabled}`,
-  ];
+  );
   if (result.settings.disabled) lines.push('WARNING: settings.disableAllHooks is true; hooks are installed but inactive.');
   lines.push('Smoke checks: omq doctor; qwen -p "Reply with exactly OMQ-EXEC-OK" --output-format json; omq exec "Reply with exactly OMQ-EXEC-OK"');
   process.stdout.write(`${lines.join('\n')}\n`);
@@ -115,6 +130,7 @@ function printSetupSummary(result: Awaited<ReturnType<typeof setup>>): void {
 
 function printUninstallSummary(result: Awaited<ReturnType<typeof uninstall>>): void {
   process.stdout.write(`omq uninstall ${result.dryRun ? '(dry-run) ' : ''}complete\nextension removed: ${result.extension.removed}\nsettings changed: ${result.settings.changed}\nowned hooks removed: ${result.settings.removedOwnedHooks}\n`);
+  if (result.extension.projectMirror) process.stdout.write(`project surfaces removed: ${result.extension.projectMirror.removed.length}\n`);
   if (result.extension.skippedReason) process.stdout.write(`extension skipped: ${result.extension.skippedReason}\n`);
 }
 

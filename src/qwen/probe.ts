@@ -25,7 +25,7 @@ export function findExecutable(name: string, env: NodeJS.ProcessEnv = process.en
 
 export function readQwenVersion(qwenBinary: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
   for (const args of [['--version'], ['-v']]) {
-    const result = spawnSync(qwenBinary, args, { encoding: 'utf8', env, timeout: 3000 });
+    const result = spawnSync(qwenBinary, args, { encoding: 'utf8', env, timeout: 10000 });
     if (result.status === 0) {
       const text = `${result.stdout || ''}${result.stderr || ''}`.trim();
       if (text) return text.split(/\r?\n/)[0];
