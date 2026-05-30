@@ -1,0 +1,48 @@
+{
+  "name": "oh-my-qwen",
+  "version": "0.1.0",
+  "description": "Workflow harness and orchestration layer for Qwen Code CLI",
+  "type": "module",
+  "bin": {
+    "omq": "dist/cli/omq.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist/",
+    "!dist/**/__tests__/**",
+    "skills/",
+    "agents/",
+    "prompts/",
+    "templates/",
+    "extension-template/",
+    "docs/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "prepack": "npm run build",
+    "pack:smoke": "npm pack --dry-run",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "qwen",
+    "qwen-code",
+    "agent",
+    "workflow",
+    "cli"
+  ],
+  "license": "MIT",
+  "peerDependenciesMeta": {
+    "@qwen-code/qwen-code": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^6.0.2"
+  }
+}

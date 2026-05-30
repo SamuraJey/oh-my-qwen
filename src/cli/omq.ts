@@ -1,0 +1,207 @@
+#!/usr/bin/env node
+import path from 'node:path';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { VERSION } from '../constants.js';
+import { buildDoctorReport, renderDoctorReport } from '../qwen/doctor.js';
+import { probeQwen } from '../qwen/probe.js';
+import { normalizeScope, type SetupScope } from '../qwen/paths.js';
+import { parseHookInput, formatHookOutput } from '../qwen/hook-io.js';
+import { handleHook } from '../hooks/lifecycle.js';
+import { setup, uninstall } from './setup.js';
+import { runQwenExec } from '../exec/qwen-exec.js';
+import { completeGoal, createDeepInterviewContext, createGoal, createRalplanArtifacts, createTeamPlan } from '../workflows/artifacts.js';
+import { runMcpServer } from '../mcp/server.js';
+
+interface ParsedGlobal {
+  cwd: string;
+  json: boolean;
+  scope: SetupScope;
+  dryRun: boolean;
+  forceProject: boolean;
+  rest: string[];
+}
+
+function help(): string {
+  return `oh-my-qwen ${VERSION}\n\nUsage:\n  omq help\n  omq version [--json]\n  omq doctor [--json] [--scope user|project]\n  omq probe --json\n  omq status [--json] [--scope user|project]\n  omq setup --scope user|project [--dry-run] [--force-project]\n  omq uninstall --scope user|project [--dry-run]\n  omq exec [-C dir] [--approval-mode MODE] [--model MODEL] [--continue] [--resume [ID]] "prompt"\n  omq deep-interview "task"\n  omq ralplan "task"\n  omq goal start|complete|block|fail "objective"\n  omq team plan "task"\n\nMVP constraints: no qwen-code fork, .omq state root, Qwen hooks via marker-owned settings entries.\n`;
+}
+
+function takeFlag(args: string[], name: string): string | undefined {
+  const idx = args.indexOf(name);
+  if (idx === -1) return undefined;
+  const value = args[idx + 1];
+  args.splice(idx, value && !value.startsWith('--') ? 2 : 1);
+  return value && !value.startsWith('--') ? value : undefined;
+}
+
+function takeBoolean(args: string[], name: string): boolean {
+  const idx = args.indexOf(name);
+  if (idx === -1) return false;
+  args.splice(idx, 1);
+  return true;
+}
+
+function parseGlobal(argv: string[]): ParsedGlobal {
+  const args = [...argv];
+  const cwdFlag = takeFlag(args, '-C') ?? takeFlag(args, '--cwd');
+  const scope = normalizeScope(takeFlag(args, '--scope'));
+  return {
+    cwd: cwdFlag ? path.resolve(cwdFlag) : process.cwd(),
+    json: takeBoolean(args, '--json'),
+    scope,
+    dryRun: takeBoolean(args, '--dry-run'),
+    forceProject: takeBoolean(args, '--force-project'),
+    rest: args,
+  };
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function printJson(value: unknown): void {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function printSetupSummary(result: Awaited<ReturnType<typeof setup>>): void {
+  const lines = [
+    `omq setup ${result.dryRun ? '(dry-run) ' : ''}complete`,
+    `extension: ${result.extension.extensionDir}`,
+    `  created: ${result.extension.created.length}`,
+    `  updated: ${result.extension.updated.length}`,
+    `  unchanged: ${result.extension.unchanged.length}`,
+    `settings: ${result.settings.settingsPath}`,
+    `  changed: ${result.settings.changed}`,
+    `  hooks disabled: ${result.settings.disabled}`,
+  ];
+  if (result.settings.disabled) lines.push('WARNING: settings.disableAllHooks is true; hooks are installed but inactive.');
+  lines.push('Smoke checks: omq doctor; qwen -p "Reply with exactly OMQ-EXEC-OK" --output-format json; omq exec "Reply with exactly OMQ-EXEC-OK"');
+  process.stdout.write(`${lines.join('\n')}\n`);
+}
+
+function printUninstallSummary(result: Awaited<ReturnType<typeof uninstall>>): void {
+  process.stdout.write(`omq uninstall ${result.dryRun ? '(dry-run) ' : ''}complete\nextension removed: ${result.extension.removed}\nsettings changed: ${result.settings.changed}\nowned hooks removed: ${result.settings.removedOwnedHooks}\n`);
+  if (result.extension.skippedReason) process.stdout.write(`extension skipped: ${result.extension.skippedReason}\n`);
+}
+
+async function commandExec(global: ParsedGlobal, args: string[]): Promise<number> {
+  const approvalMode = takeFlag(args, '--approval-mode');
+  const model = takeFlag(args, '--model');
+  const systemPrompt = takeFlag(args, '--system-prompt');
+  const appendSystemPrompt = takeFlag(args, '--append-system-prompt');
+  const maxSessionTurns = takeFlag(args, '--max-session-turns');
+  const maxWallTime = takeFlag(args, '--max-wall-time');
+  const maxToolCalls = takeFlag(args, '--max-tool-calls');
+  const includePartialMessages = takeBoolean(args, '--include-partial-messages');
+  const continueSession = takeBoolean(args, '--continue');
+  let resume: string | true | undefined;
+  const resumeIdx = args.indexOf('--resume');
+  if (resumeIdx !== -1) {
+    const next = args[resumeIdx + 1];
+    resume = next && !next.startsWith('--') ? next : true;
+    args.splice(resumeIdx, resume === true ? 1 : 2);
+  }
+  const prompt = args.join(' ').trim();
+  if (!prompt) throw new Error('omq exec requires a prompt');
+  const result = await runQwenExec(prompt, { cwd: global.cwd, approvalMode, model, systemPrompt, appendSystemPrompt, continueSession, resume, maxSessionTurns, maxWallTime, maxToolCalls, includePartialMessages });
+  if (global.json) printJson(result);
+  else process.stdout.write(result.response || result.stdout);
+  return result.exitCode ?? 1;
+}
+
+async function commandWorkflow(kind: string, args: string[], cwd: string): Promise<number> {
+  const task = args.join(' ').trim();
+  if (!task && kind !== 'goal') throw new Error(`omq ${kind} requires a task`);
+  if (kind === 'deep-interview') {
+    printJson(await createDeepInterviewContext(task, cwd));
+  } else if (kind === 'ralplan' || kind === 'plan') {
+    printJson(await createRalplanArtifacts(task, cwd));
+  } else if (kind === 'team') {
+    const sub = args.shift();
+    if (sub !== 'plan') throw new Error('omq team currently supports: plan "task"');
+    printJson(await createTeamPlan(args.join(' ').trim(), cwd));
+  }
+  return 0;
+}
+
+async function commandGoal(args: string[], cwd: string): Promise<number> {
+  const sub = args.shift();
+  if (sub === 'start') printJson(await createGoal(args.join(' ').trim(), cwd));
+  else if (sub === 'complete') printJson(await completeGoal('finished', cwd));
+  else if (sub === 'block') printJson(await completeGoal('blocked', cwd));
+  else if (sub === 'fail') printJson(await completeGoal('failed', cwd));
+  else throw new Error('omq goal supports: start|complete|block|fail');
+  return 0;
+}
+
+export async function main(argv = process.argv.slice(2)): Promise<number> {
+  const global = parseGlobal(argv);
+  const [cmd = 'help', ...args] = global.rest;
+
+  switch (cmd) {
+    case 'help':
+    case '--help':
+    case '-h':
+      process.stdout.write(help());
+      return 0;
+    case 'version':
+    case '--version':
+    case '-v':
+      if (global.json) printJson({ version: VERSION });
+      else process.stdout.write(`${VERSION}\n`);
+      return 0;
+    case 'probe':
+      printJson(probeQwen());
+      return 0;
+    case 'doctor':
+    case 'status': {
+      const report = await buildDoctorReport(global.scope, global.cwd);
+      if (global.json || cmd === 'status') printJson(report);
+      else process.stdout.write(renderDoctorReport(report));
+      return report.ok ? 0 : 1;
+    }
+    case 'setup': {
+      const result = await setup({ scope: global.scope, cwd: global.cwd, dryRun: global.dryRun, forceProject: global.forceProject });
+      if (global.json) printJson(result);
+      else printSetupSummary(result);
+      return result.doctor.ok ? 0 : 0;
+    }
+    case 'uninstall': {
+      const result = await uninstall({ scope: global.scope, cwd: global.cwd, dryRun: global.dryRun, forceProject: global.forceProject });
+      if (global.json) printJson(result);
+      else printUninstallSummary(result);
+      return 0;
+    }
+    case 'hook': {
+      const raw = await readStdin();
+      process.stdout.write(formatHookOutput(await handleHook(parseHookInput(raw))));
+      return 0;
+    }
+    case 'exec':
+      return commandExec(global, args);
+    case 'deep-interview':
+    case 'ralplan':
+    case 'plan':
+      return commandWorkflow(cmd, args, global.cwd);
+    case 'team':
+      return commandWorkflow(cmd, args, global.cwd);
+    case 'goal':
+      return commandGoal(args, global.cwd);
+    case 'mcp-serve':
+      await runMcpServer(args[0] || 'state');
+      return 0;
+    default:
+      throw new Error(`Unknown command: ${cmd}\n\n${help()}`);
+  }
+}
+
+const isDirectRun = process.argv[1] ? realpathSync(process.argv[1]) === fileURLToPath(import.meta.url) : false;
+
+if (isDirectRun) {
+  main().then((code) => process.exit(code)).catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
+}
