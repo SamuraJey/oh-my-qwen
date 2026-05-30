@@ -47,7 +47,12 @@ test('materializeExtension includes all packaged workflow skill adapters', async
     assert.match(content, /Packaged workflow skill body/);
     const command = await readFile(path.join(setup.extensionDir, 'commands', `${skill}.md`), 'utf8');
     assert.match(command, new RegExp(`# /${skill}`));
+    assert.match(command, /description:/);
+    assert.match(command, new RegExp(`omq workflow start ${skill}`));
   }
+  const cancelCommand = await readFile(path.join(setup.extensionDir, 'commands', 'cancel.md'), 'utf8');
+  assert.match(cancelCommand, /omq workflow cancel/);
+  assert.doesNotMatch(cancelCommand, /workflow start cancel/);
 });
 
 test('project mirror skips user-owned files unless forceProject is used', async () => {

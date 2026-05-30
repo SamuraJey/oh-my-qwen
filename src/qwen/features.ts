@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process';
 import { findExecutable, readQwenVersion } from './probe.js';
+import { spawnSyncCaptured } from '../utils/process-capture.js';
 
 export interface QwenFeatureProbe {
   qwenBinary?: string;
@@ -32,10 +32,10 @@ export function probeQwenFeatures(env: NodeJS.ProcessEnv = process.env): QwenFea
     warnings.push('qwen binary not found; feature probe is unavailable until Qwen Code is installed or QWEN_BIN is set.');
     return emptyProbe(undefined, undefined, warnings);
   }
-  const help = spawnSync(qwenBinary, ['--help'], { encoding: 'utf8', env, timeout: 5000 });
-  const extensions = spawnSync(qwenBinary, ['extensions', '--help'], { encoding: 'utf8', env, timeout: 5000 });
-  const mcp = spawnSync(qwenBinary, ['mcp', '--help'], { encoding: 'utf8', env, timeout: 5000 });
-  const serve = spawnSync(qwenBinary, ['serve', '--help'], { encoding: 'utf8', env, timeout: 5000 });
+  const help = spawnSyncCaptured(qwenBinary, ['--help'], { env, timeout: 5000 });
+  const extensions = spawnSyncCaptured(qwenBinary, ['extensions', '--help'], { env, timeout: 5000 });
+  const mcp = spawnSyncCaptured(qwenBinary, ['mcp', '--help'], { env, timeout: 5000 });
+  const serve = spawnSyncCaptured(qwenBinary, ['serve', '--help'], { env, timeout: 5000 });
   const text = `${help.stdout || ''}\n${help.stderr || ''}`;
   const serveText = `${serve.stdout || ''}\n${serve.stderr || ''}`;
   const qwenVersion = readQwenVersion(qwenBinary, env);

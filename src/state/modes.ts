@@ -47,6 +47,6 @@ export async function writeModeState(mode: string, state: ModeState, cwd = proce
   const modesDir = getStatePaths(cwd, env).modes;
   await ensureDir(modesDir);
   const file = path.join(modesDir, `${mode}.json`);
-  await writeJson(file, { mode, updated_at: new Date().toISOString(), ...state });
+  await writeJson(file, { ...state, mode, updated_at: new Date().toISOString() });
   return file;
 }

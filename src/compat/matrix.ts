@@ -117,12 +117,12 @@ export const COMPAT_ROWS: CompatRow[] = [
   {
     area: 'mcp-memory-wiki-trace',
     sourceSurface: 'state/memory/wiki/trace tools and CLI wiki surfaces',
-    ohMyQwenSurface: 'extension manifest declares omq_state and omq_memory MCP stubs',
-    status: 'planned',
-    evidence: ['src/mcp/server.ts', 'src/qwen/extension-manifest.ts'],
-    qwenSurface: 'Qwen mcpServers configuration',
-    notes: 'Stubs are enough for extension shape; full state/memory/wiki tools are not implemented.',
-    nextStep: 'Implement state read/write/list tools first, then memory/wiki/trace parity.',
+    ohMyQwenSurface: 'omq_state, omq_memory, and omq_wiki MCP servers expose state, memory, and wiki tools',
+    status: 'partial',
+    evidence: ['src/mcp/bootstrap.ts', 'src/mcp/state-server.ts', 'src/mcp/memory-server.ts', 'src/mcp/wiki-server.ts', 'src/cli/mcp-serve.ts', 'src/mcp/__tests__/server.test.ts', 'src/qwen/settings.ts'],
+    qwenSurface: 'Qwen mcpServers configuration with official SDK stdio tools',
+    notes: 'State read/write/status plus memory read/write and wiki read/write/search are implemented as direct Node MCP servers; trace-specific tooling is still future work.',
+    nextStep: 'Add trace/session timeline tools and command-level workflow policies.',
   },
   {
     area: 'qwen-serve-experimental',

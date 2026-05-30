@@ -38,6 +38,7 @@ cd /path/to/your/project
 omq setup --scope project --dry-run
 omq setup --scope project
 omq doctor --scope project
+qwen mcp list
 omq --tmux
 ```
 
@@ -53,11 +54,14 @@ Inside Qwen Code, optional checks:
 
 ```text
 /extensions
+/mcp
 /skills
 /agents
 ```
 
 Note: Qwen Code 0.17 lists installed extensions from `${QWEN_HOME:-~/.qwen}/extensions`, so `qwen extensions list` can still say `No extensions installed` after project-scope setup. That is expected for project scope; the generated commands and skills are visible through the project `.qwen/{commands,skills,agents}` mirrors. Use `omq setup --scope user` if you specifically need `/extensions` / `qwen extensions list` visibility.
+
+`qwen mcp list` should show `omq_state`, `omq_memory`, and `omq_wiki` as connected. These are direct Node stdio MCP servers built on the official MCP SDK and expose `.omq` workflow state, memory, and wiki tools to Qwen Code.
 
 ## Real execution smoke
 

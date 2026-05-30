@@ -1,6 +1,6 @@
-import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { ensureDir } from '../utils/fs.js';
+import { spawnCaptured } from '../utils/process-capture.js';
 import { getStatePaths } from '../state/paths.js';
 import { findExecutable } from '../qwen/probe.js';
 
@@ -125,17 +125,7 @@ export async function runQwenExec(prompt: string, options: ExecOptions): Promise
   const format = options.outputFormat ?? 'stream-json';
   const args = buildQwenArgs(prompt, { ...options, outputFormat: format });
 
-  const child = spawn(command, args, { cwd: options.cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
-  let stdout = '';
-  let stderr = '';
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => (stdout += chunk));
-  child.stderr.on('data', (chunk) => (stderr += chunk));
-  const { exitCode, signal } = await new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
-    child.on('error', reject);
-    child.on('close', (code, sig) => resolve({ exitCode: code, signal: sig }));
-  });
+  const { stdout, stderr, exitCode, signal } = await spawnCaptured(command, args, { cwd: options.cwd, env });
 
   const parsed = parseQwenOutput(stdout, format);
   const result: ExecResult = { command, args, cwd: options.cwd, exitCode, signal, stdout, stderr, response: parsed.response, sessionId: parsed.sessionId, usage: parsed.usage, events: parsed.events };

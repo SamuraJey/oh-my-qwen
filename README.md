@@ -7,7 +7,7 @@
 - Nessy wrapper binary: `omq-nessy`
 - generated Qwen extension id: `oh-my-qwen`
 - state root: `.omq/`
-- integration: Qwen-native extension files, marker-owned Qwen settings hooks, and `qwen -p --output-format stream-json`
+- integration: Qwen-native extension files, marker-owned Qwen settings hooks, MCP state/memory/wiki tools, and `qwen -p --output-format stream-json`
 
 ## Quickstart
 
@@ -15,6 +15,7 @@
 npm install -g oh-my-qwen
 omq doctor
 omq setup --scope project
+qwen mcp list
 omq --tmux
 omq exec "Reply with exactly OMQ-EXEC-OK"
 ```
@@ -35,6 +36,8 @@ See [Local installation](./docs/local-install.md) for project/user scope setup, 
 
 `omq setup` materializes a Qwen extension at either `~/.qwen/extensions/oh-my-qwen` or `.qwen/extensions/oh-my-qwen`, then upserts only OMQ-owned hook entries in the selected Qwen `settings.json`. For project scope, Qwen Code 0.17 loads project commands/skills/agents from `.qwen/{commands,skills,agents}`, so setup also writes generated project-visible mirrors there; `/extensions` visibility requires user scope.
 
+Setup also registers `omq_state`, `omq_memory`, and `omq_wiki` MCP servers. They are direct Node/TypeScript stdio MCP servers built on the official MCP SDK and expose `.omq` workflow state, memory, and wiki tools to Qwen Code. No Python or shell MCP bridge is required.
+
 ## Commands
 
 ```bash
@@ -52,6 +55,7 @@ omq [launch] [--tmux|--direct] [qwen args...]
 omq resume [qwen resume args...]
 omq exec [-C dir] [--approval-mode default|plan|auto_edit|auto-edit|yolo] "prompt"
 omq list [--json]
+omq workflow start|checkpoint|finish|cancel <mode|all> [text]
 omq deep-interview "task"
 omq ralplan "task"
 omq goal start "objective"
@@ -100,7 +104,7 @@ Use `omq compat` to inspect the current `oh-my-qwen` status matrix. Use `omq qwe
 - MVP does **not** depend on experimental `qwen serve`; `omq exec` uses `qwen -p --output-format stream-json`.
 - Interactive launch supports direct, inside-tmux, and detached-tmux modes; HUD support is intentionally lightweight.
 - Team mode is external-process-first. Write-heavy orchestration should use tmux + git worktrees rather than implicit in-session fork subagents.
-- Qwen MCP servers are stubbed for state/memory discovery and will expand after the core setup/hook/exec surface stabilizes.
+- MCP state/memory/wiki tools are available through `omq_state`, `omq_memory`, and `omq_wiki`; higher-level workflow automation is still being expanded command by command.
 
 ## Safety model
 

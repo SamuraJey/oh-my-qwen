@@ -11,11 +11,13 @@ import { handleHook } from '../hooks/lifecycle.js';
 import { setup, uninstall } from './setup.js';
 import { runQwenExec } from '../exec/qwen-exec.js';
 import { completeGoal, createDeepInterviewContext, createGoal, createRalplanArtifacts, createTeamPlan } from '../workflows/artifacts.js';
-import { runMcpServer } from '../mcp/server.js';
+import { mcpServeCommand } from './mcp-serve.js';
 import { COMPAT_ROWS, compatSummary, renderCompatMarkdown } from '../compat/matrix.js';
 import { probeQwenFeatures, renderQwenFeatures } from '../qwen/features.js';
 import { OMQ_SKILL_CATALOG } from '../qwen/workflow-skill-catalog.js';
 import { runInteractiveQwenLaunch } from '../launch/qwen-launch.js';
+import { listActiveModes } from '../state/modes.js';
+import { cancelWorkflow, checkpointWorkflow, finishWorkflow, renderWorkflowRuntimeResult, startWorkflow } from '../workflows/runtime.js';
 
 interface ParsedGlobal {
   cwd: string;
@@ -27,7 +29,7 @@ interface ParsedGlobal {
 }
 
 function help(): string {
-  return `oh-my-qwen ${VERSION}\n\nUsage:\n  omq help\n  omq version [--json]\n  omq doctor [--json] [--scope user|project]\n  omq probe --json\n  omq status [--json] [--scope user|project]\n  omq setup --scope user|project [--dry-run] [--force-project]\n  omq uninstall --scope user|project [--dry-run]\n  omq [launch] [--tmux|--direct] [qwen args...]\n  omq resume [qwen resume args...]\n  omq exec [-C dir] [--approval-mode MODE] [--model MODEL] [--continue] [--resume [ID]] "prompt"\n  omq list [--json]\n  omq deep-interview "task"\n  omq ralplan "task"\n  omq goal start|complete|block|fail "objective"\n  omq team plan "task"\n\nLaunch policy: OMQ_LAUNCH_POLICY=auto|direct|tmux, or CLI --direct/--tmux. Default is detached tmux on supported interactive terminals, direct otherwise; inside tmux runs in the current pane.\nMVP constraints: no qwen-code fork, .omq state root, Qwen hooks via marker-owned settings entries.\n`;
+  return `oh-my-qwen ${VERSION}\n\nUsage:\n  omq help\n  omq version [--json]\n  omq doctor [--json] [--scope user|project]\n  omq probe --json\n  omq status [--json] [--scope user|project]\n  omq setup --scope user|project [--dry-run] [--force-project]\n  omq uninstall --scope user|project [--dry-run]\n  omq [launch] [--tmux|--direct] [qwen args...]\n  omq resume [qwen resume args...]\n  omq exec [-C dir] [--approval-mode MODE] [--model MODEL] [--continue] [--resume [ID]] "prompt"\n  omq list [--json]\n  omq mcp-serve state|memory|wiki\n  omq workflow start|checkpoint|finish|cancel <mode|all> [text]\n  omq deep-interview "task"\n  omq ralplan "task"\n  omq goal start|complete|block|fail "objective"\n  omq team plan "task"\n\nLaunch policy: OMQ_LAUNCH_POLICY=auto|direct|tmux, or CLI --direct/--tmux. Default is detached tmux on supported interactive terminals, direct otherwise; inside tmux runs in the current pane.\nMVP constraints: no qwen-code fork, .omq state root, Qwen hooks via marker-owned settings entries.\n`;
 }
 
 function takeFlag(args: string[], name: string): string | undefined {
@@ -122,7 +124,9 @@ function printSetupSummary(result: Awaited<ReturnType<typeof setup>>): void {
     `settings: ${result.settings.settingsPath}`,
     `  changed: ${result.settings.changed}`,
     `  hooks disabled: ${result.settings.disabled}`,
+    `  mcp servers: ${result.settings.installedMcpServers.join(', ') || 'none'}`,
   );
+  if (result.settings.skippedMcpServers.length) lines.push(`  WARNING: skipped existing non-generated MCP server keys: ${result.settings.skippedMcpServers.join(', ')}`);
   if (result.settings.disabled) lines.push('WARNING: settings.disableAllHooks is true; hooks are installed but inactive.');
   lines.push('Smoke checks: omq doctor; qwen -p "Reply with exactly OMQ-EXEC-OK" --output-format json; omq exec "Reply with exactly OMQ-EXEC-OK"');
   process.stdout.write(`${lines.join('\n')}\n`);
@@ -130,6 +134,7 @@ function printSetupSummary(result: Awaited<ReturnType<typeof setup>>): void {
 
 function printUninstallSummary(result: Awaited<ReturnType<typeof uninstall>>): void {
   process.stdout.write(`omq uninstall ${result.dryRun ? '(dry-run) ' : ''}complete\nextension removed: ${result.extension.removed}\nsettings changed: ${result.settings.changed}\nowned hooks removed: ${result.settings.removedOwnedHooks}\n`);
+  process.stdout.write(`owned MCP servers removed: ${result.settings.removedOwnedMcpServers}\n`);
   if (result.extension.projectMirror) process.stdout.write(`project surfaces removed: ${result.extension.projectMirror.removed.length}\n`);
   if (result.extension.skippedReason) process.stdout.write(`extension skipped: ${result.extension.skippedReason}\n`);
 }
@@ -181,6 +186,41 @@ async function commandGoal(args: string[], cwd: string): Promise<number> {
   else if (sub === 'block') printJson(await completeGoal('blocked', cwd));
   else if (sub === 'fail') printJson(await completeGoal('failed', cwd));
   else throw new Error('omq goal supports: start|complete|block|fail');
+  return 0;
+}
+
+async function commandWorkflowRuntime(json: boolean, args: string[], cwd: string): Promise<number> {
+  const sub = args.shift();
+  const mode = args.shift();
+  const writeResult = (value: unknown): void => {
+    if (json) printJson(value);
+    else if (value && typeof value === 'object' && 'action' in value && 'state' in value) process.stdout.write(renderWorkflowRuntimeResult(value as Awaited<ReturnType<typeof startWorkflow>>));
+    else process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+  };
+
+  if (sub === 'start') {
+    if (!mode) throw new Error('omq workflow start requires a mode');
+    writeResult(await startWorkflow(mode, args.join(' ').trim(), cwd));
+  } else if (sub === 'checkpoint') {
+    if (!mode) throw new Error('omq workflow checkpoint requires a mode');
+    writeResult(await checkpointWorkflow(mode, args.join(' ').trim(), cwd));
+  } else if (sub === 'finish') {
+    if (!mode) throw new Error('omq workflow finish requires a mode');
+    writeResult(await finishWorkflow(mode, args.shift() || 'finished', cwd));
+  } else if (sub === 'cancel') {
+    const target = mode || 'all';
+    const reason = args.join(' ').trim() || 'cancelled by command';
+    if (target === 'all') {
+      const active = await listActiveModes(cwd);
+      const cancelled = [];
+      for (const item of active) cancelled.push(await cancelWorkflow(item.mode, reason, cwd));
+      writeResult({ action: 'cancel', mode: 'all', cancelled, count: cancelled.length });
+    } else {
+      writeResult(await cancelWorkflow(target, reason, cwd));
+    }
+  } else {
+    throw new Error('omq workflow supports: start|checkpoint|finish|cancel');
+  }
   return 0;
 }
 
@@ -280,6 +320,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return commandLaunch(global, ['--resume', ...launchArgs]);
     case 'exec':
       return commandExec(global, args);
+    case 'workflow':
+      return commandWorkflowRuntime(global.json, args, global.cwd);
     case 'deep-interview':
     case 'ralplan':
     case 'plan':
@@ -289,7 +331,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     case 'goal':
       return commandGoal(args, global.cwd);
     case 'mcp-serve':
-      await runMcpServer(args[0] || 'state');
+      await mcpServeCommand(args);
       return 0;
     default:
       throw new Error(`Unknown command: ${cmd}\n\n${help()}`);

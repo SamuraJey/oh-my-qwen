@@ -71,8 +71,13 @@ ${nativeHint}
 
 - Interpret \`$${entry.name}\`, \`/${entry.name}\`, or the plain skill name as the same packaged workflow intent.
 - Use Qwen Code as the execution engine; do not invoke or require another runtime state model.
+- Use the \`omq_state\` MCP server for lifecycle state: \`state_status\`, \`state_read_mode\`, and \`state_write_mode\`.
+- Use the \`omq_memory\` MCP server for reusable project notes: \`memory_read\` and \`memory_write\`.
+- Use the \`omq_wiki\` MCP server for reusable project knowledge: \`wiki_search\`, \`wiki_read\`, and \`wiki_write\`.
 - Store durable artifacts under \`.omq/\` and mention exact artifact paths in the final answer.
+- Create a checkpoint before long or risky work, and mark the mode terminal before stopping.
 - Prefer \`omq launch\` for interactive work, \`omq exec\` for headless Qwen runs, and \`omq team plan\` / tmux worktrees for write-heavy parallel work.
+- If MCP tools are unavailable in the current Qwen session, fall back to \`omq workflow start|checkpoint|finish|cancel\` shell commands.
 - If the packaged workflow depends on a feature that OMQ has not ported yet, state the gap explicitly, perform the closest safe Qwen-native subset, and leave clear follow-up evidence.
 
 ## Verification
@@ -82,11 +87,66 @@ Before claiming completion, cite concrete Qwen/OMQ evidence: changed files, \`.o
 }
 
 export function renderQwenCommandAdapterBody(entry: WorkflowSkillCatalogEntry): string {
-  return `Activate the \`${entry.name}\` OMQ skill adapter.
+  if (entry.name === 'cancel') {
+    return `# /cancel
+
+## Runtime bootstrap
+
+The command invocation below is intentionally executable. With no arguments it cancels all active project workflow modes; with one argument it cancels that mode.
+
+\`\`\`json
+!{omq workflow cancel {{args}}}
+\`\`\`
+
+User arguments: \`{{args}}\`
+
+## Required execution protocol
+
+- Treat the bootstrap output as the cancellation result, not as a new active \`cancel\` workflow.
+- Inspect \`omq_state\` MCP state with \`state_status\` and confirm the requested mode(s) are terminal.
+- If a target mode is still active, force it terminal through \`omq_state.state_write_mode\` with \`active:false\`, \`lifecycle_outcome:"cancelled"\`, and a short reason.
+- Write a concise cancellation note through \`omq_memory.memory_write\` using section \`workflow:cancel\`.
+- If MCP tools are unavailable, use shell fallback \`omq workflow cancel <mode|all> "<reason>"\`.
+
+## Final answer contract
+
+Return the cancelled mode list, remaining active modes, and the exact \`.omq/\` state paths touched.
+`;
+  }
+
+  const bootstrap = `!{omq workflow start ${entry.name} {{args}}}`;
+
+  return `# /${entry.name}
+
+## Runtime bootstrap
+
+The command invocation below is intentionally executable. It creates or updates the real project workflow state before the model starts reasoning.
+
+\`\`\`json
+${bootstrap}
+\`\`\`
+
+User arguments: \`{{args}}\`
+
+## Required execution protocol
 
 - Read \`skills/${entry.name}/SKILL.md\` from this generated extension.
-- Use Qwen/OMQ equivalents for source workflow operations.
-- Persist workflow state under \`.omq/\`.
+- Treat the bootstrap output as the active runtime state for mode \`${entry.name}\`.
+- First inspect \`omq_state\` MCP state with \`state_status\` (Qwen may display the tool with an alias prefix).
+- Write a concise start/checkpoint note through \`omq_memory.memory_write\` using section \`workflow:${entry.name}\`.
+- Use \`omq_wiki.wiki_search/read/write\` when the workflow needs reusable project knowledge.
+- During multi-step work, update \`.omq/state/modes/${entry.name}.json\` through \`omq_state.state_write_mode\` or shell fallback \`omq workflow checkpoint ${entry.name} "<message>"\`.
+- Before finishing, mark the mode terminal with \`omq_state.state_write_mode\` (\`active:false\`, \`lifecycle_outcome:"finished"\`) or shell fallback \`omq workflow finish ${entry.name} finished\`.
+- If the task cannot be completed, mark it terminal as \`blocked\`, \`failed\`, or \`cancelled\` instead of leaving an active mode.
 - For headless execution use \`omq exec <prompt>\`; for interactive execution use \`omq launch\` or plain \`omq\`.
+
+## Final answer contract
+
+Return a short outcome-first report with:
+
+1. Result.
+2. Files/artifacts touched, especially \`.omq/\` paths.
+3. Validation evidence.
+4. Any explicit parity gap if this adapter could only perform a safe subset.
 `;
 }

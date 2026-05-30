@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { OMQ_MCP_SERVER_NAMES } from '../mcp/registry.js';
 import { pathExists, readJsonIfExists } from '../utils/fs.js';
 import { qwenDir, qwenExtensionDir, qwenSettingsPath, type SetupScope } from './paths.js';
 import { isOmqHook, type JsonObject } from './settings.js';
@@ -35,6 +36,8 @@ export async function buildDoctorReport(scope: SetupScope, cwd = process.cwd(), 
   const projectQwenDir = qwenDir('project', { cwd, env });
   const settings = await readJsonIfExists<JsonObject>(settingsPath, {});
   const hooks = (settings.hooks && typeof settings.hooks === 'object' ? settings.hooks : {}) as Record<string, unknown>;
+  const mcpServers = (settings.mcpServers && typeof settings.mcpServers === 'object' ? settings.mcpServers : {}) as Record<string, unknown>;
+  const missingMcpServers = OMQ_MCP_SERVER_NAMES.filter((name) => !mcpServers[name]);
   const hookEventsPresent = Object.entries(hooks)
     .filter(([, groups]) => Array.isArray(groups) && groups.some((group) => group && typeof group === 'object' && Array.isArray((group as { hooks?: unknown }).hooks) && ((group as { hooks: unknown[] }).hooks.some(isOmqHook))))
     .map(([event]) => event)
@@ -57,6 +60,7 @@ export async function buildDoctorReport(scope: SetupScope, cwd = process.cwd(), 
       check('extension-visibility', userExtensionExists, userExtensionExists ? `Qwen installed extension also present in user scope: ${userExtensionDir}` : 'Qwen Code 0.17 lists installed extensions from QWEN_HOME; project .qwen/extensions is package metadata, while project commands/skills/agents are loaded from the mirror. Use omq setup --scope user for /extensions visibility.'),
     ] : []),
     check('hooks', hookEventsPresent.length > 0, hookEventsPresent.length > 0 ? `OMQ hook events: ${hookEventsPresent.join(', ')}` : 'OMQ hook entries missing'),
+    check('mcp-servers', missingMcpServers.length === 0, missingMcpServers.length === 0 ? `OMQ MCP servers configured: ${OMQ_MCP_SERVER_NAMES.join(', ')}` : `OMQ MCP servers missing from settings: ${missingMcpServers.join(', ')}; run omq setup`),
     check('hooks-enabled', !disableAllHooks, disableAllHooks ? 'settings.disableAllHooks is true; installed hooks are inactive' : 'hooks are not globally disabled', true),
     check('project-trust', scope === 'user', scope === 'user' ? 'user scope does not require project trust' : 'project trust detection is advisory in MVP; verify Qwen trusts this workspace'),
   ];

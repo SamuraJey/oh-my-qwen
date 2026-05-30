@@ -20,6 +20,7 @@ omq compat
 - `.omq/` state root;
 - interactive `omq` launch with direct/inside-tmux/detached-tmux policy;
 - `omq exec` over `qwen -p --output-format stream-json`;
+- MCP servers `omq_state`, `omq_memory`, and `omq_wiki` for `.omq` workflow state, memory, and wiki tools;
 - Qwen-native commands/skills/agents for the default workflow shape plus generated adapters for packaged workflow skills.
 
 ## Status matrix
@@ -35,7 +36,7 @@ omq compat
 | packaged workflow skills | implemented: first-party workflow skills are directly packaged under `skills/workflows` and generated as Qwen skill/command adapters; generic/user skills are not included |
 | deep-interview / ralplan / goal | partial: commands, skills, routing context, durable artifacts exist; full autonomous consensus execution is future work |
 | team | partial: external-process plan exists; tmux/worktree run/status is future work |
-| MCP memory/wiki/trace | planned: manifest declares state/memory stubs; full tools are future work |
+| MCP state/memory/wiki/trace | partial: `omq_state`, `omq_memory`, and `omq_wiki` expose state, memory, and wiki tools through official SDK stdio servers; trace tooling is future work |
 | HUD/notifications/auth/quota/update/cleanup | planned or not yet applicable; operator-polish surfaces come after core workflow stability |
 | experimental `qwen serve` | planned opt-in only; do not make MVP depend on it |
 

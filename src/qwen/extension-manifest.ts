@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EXTENSION_ID, GENERATED_MARKER, VERSION } from '../constants.js';
+import { buildPluginMcpManifest } from '../mcp/registry.js';
 import {
   OMQ_SKILL_CATALOG,
   renderQwenCommandAdapterBody,
@@ -15,7 +16,7 @@ export interface QwenExtensionManifest {
   commands: string;
   skills: string;
   agents: string;
-  mcpServers: Record<string, { command: string; args: string[] }>;
+  mcpServers: Record<string, { command: string; args: string[]; enabled?: boolean }>;
   settings?: unknown[];
 }
 
@@ -27,10 +28,7 @@ export function makeExtensionManifest(): QwenExtensionManifest {
     commands: 'commands',
     skills: 'skills',
     agents: 'agents',
-    mcpServers: {
-      omq_state: { command: 'omq', args: ['mcp-serve', 'state'] },
-      omq_memory: { command: 'omq', args: ['mcp-serve', 'memory'] },
-    },
+    mcpServers: buildPluginMcpManifest({ enabled: false }),
     settings: [],
   };
 }
@@ -47,8 +45,8 @@ function skill(name: string, description: string, body: string): string {
   return `${mdHeader(`skills/${name}/SKILL.md`)}---\nname: ${name}\ndescription: ${yamlString(description)}\n---\n\n${body.trim()}\n`;
 }
 
-function command(name: string, body: string): string {
-  return `${mdHeader(`commands/${name}.md`)}# /${name}\n\n${body.trim()}\n`;
+function command(name: string, description: string, body: string): string {
+  return `${mdHeader(`commands/${name}.md`)}---\ndescription: ${yamlString(description)}\n---\n\n${body.trim()}\n`;
 }
 
 function agent(name: string, description: string, body: string): string {
@@ -92,7 +90,7 @@ export function renderExtensionFiles(): Record<string, string> {
   };
 
   for (const entry of OMQ_SKILL_CATALOG) {
-    files[`commands/${entry.name}.md`] = command(entry.name, renderQwenCommandAdapterBody(entry));
+    files[`commands/${entry.name}.md`] = command(entry.name, entry.description, renderQwenCommandAdapterBody(entry));
     files[`skills/${entry.name}/SKILL.md`] = skill(entry.name, entry.description, renderSkillBody(entry.name, renderQwenSkillAdapterBody(entry)));
   }
 
