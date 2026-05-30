@@ -1,6 +1,6 @@
-# oh-my-codex ↔ oh-my-qwen functionality parity
+# oh-my-qwen functionality status
 
-This document records the current parity target between `oh-my-codex` and `oh-my-qwen`.
+This document records the current Qwen-native workflow surface for `oh-my-qwen`.
 
 Run the machine-readable/current CLI view with:
 
@@ -11,17 +11,18 @@ omq compat
 
 ## Findings
 
-`oh-my-qwen` is **not** a full `oh-my-codex` clone yet. It is aligned with the approved Qwen-native MVP:
+`oh-my-qwen` is aligned with the approved Qwen-native MVP:
 
 - standalone npm package with `omq` bin;
 - no `qwen-code` fork or patching;
 - generated Qwen extension under `~/.qwen/extensions/oh-my-qwen` or `.qwen/extensions/oh-my-qwen`;
 - Qwen settings hooks are marker-owned and reversible;
 - `.omq/` state root;
+- interactive `omq` launch with direct/inside-tmux/detached-tmux policy;
 - `omq exec` over `qwen -p --output-format stream-json`;
-- Qwen-native commands/skills/agents for the default workflow shape.
+- Qwen-native commands/skills/agents for the default workflow shape plus generated adapters for packaged workflow skills.
 
-## Parity matrix
+## Status matrix
 
 | Area | Current state |
 | --- | --- |
@@ -29,16 +30,18 @@ omq compat
 | setup/uninstall | implemented: generated extension + marker-owned Qwen settings hooks |
 | doctor/probe/status | implemented: Node/qwen/settings/extension/hook/disabled-hook reporting |
 | native hook bridge | implemented for Qwen hook events with `hookSpecificOutput.hookEventName` |
+| interactive launch | implemented: `omq`/`omq launch` direct, inside-tmux, detached-tmux fallback, `OMQ_LAUNCH_POLICY` |
 | exec harness | implemented for JSON/stream-json parsing and `--approval-mode` forwarding |
+| packaged workflow skills | implemented: first-party workflow skills are directly packaged under `skills/workflows` and generated as Qwen skill/command adapters; generic/user skills are not included |
 | deep-interview / ralplan / goal | partial: commands, skills, routing context, durable artifacts exist; full autonomous consensus execution is future work |
 | team | partial: external-process plan exists; tmux/worktree run/status is future work |
 | MCP memory/wiki/trace | planned: manifest declares state/memory stubs; full tools are future work |
-| HUD/notifications/auth/quota/update/cleanup | planned or not yet applicable; many are Codex-specific operator surfaces |
+| HUD/notifications/auth/quota/update/cleanup | planned or not yet applicable; operator-polish surfaces come after core workflow stability |
 | experimental `qwen serve` | planned opt-in only; do not make MVP depend on it |
 
 ## Qwen experimental/develop surface policy
 
-Local Qwen Code docs mark `qwen serve` as **Stage 1 experimental**. It is useful for future parity with OMX long-running/team/session orchestration, because it exposes daemon capabilities, sessions, SSE events, approval-mode mutation, tool toggles, workspace init, and MCP restart routes.
+Local Qwen Code docs mark `qwen serve` as **Stage 1 experimental**. It may become useful for future long-running team/session orchestration because it exposes daemon capabilities, sessions, SSE events, approval-mode mutation, tool toggles, workspace init, and MCP restart routes.
 
 For now `oh-my-qwen` treats `qwen serve` as:
 

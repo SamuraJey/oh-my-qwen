@@ -1,9 +1,10 @@
 # oh-my-qwen
 
-`oh-my-qwen` is a standalone TypeScript ESM npm package that adds an oh-my-codex-style workflow harness around Qwen Code without forking `qwen-code`.
+`oh-my-qwen` is a standalone TypeScript ESM npm package that adds a workflow harness around Qwen Code without forking `qwen-code`. Inspired by OMX.
 
 - npm package: `oh-my-qwen`
 - CLI binary: `omq`
+- Nessy wrapper binary: `omq-nessy`
 - generated Qwen extension id: `oh-my-qwen`
 - state root: `.omq/`
 - integration: Qwen-native extension files, marker-owned Qwen settings hooks, and `qwen -p --output-format stream-json`
@@ -14,6 +15,7 @@
 npm install -g oh-my-qwen
 omq doctor
 omq setup --scope project
+omq --tmux
 omq exec "Reply with exactly OMQ-EXEC-OK"
 ```
 
@@ -46,21 +48,55 @@ omq qwen-features [--json]
 omq install-local
 omq setup --scope user|project [--dry-run]
 omq uninstall --scope user|project [--dry-run]
+omq [launch] [--tmux|--direct] [qwen args...]
+omq resume [qwen resume args...]
 omq exec [-C dir] [--approval-mode default|plan|auto_edit|auto-edit|yolo] "prompt"
+omq list [--json]
 omq deep-interview "task"
 omq ralplan "task"
 omq goal start "objective"
 omq team plan "task"
 ```
 
-## Functionality parity
+## Interactive launch
 
-Use `omq compat` to inspect the current `oh-my-codex` ↔ `oh-my-qwen` parity matrix. Use `omq qwen-features` to detect local Qwen surfaces, including experimental `qwen serve`; MVP setup and exec intentionally stay on stable extension/hooks/headless surfaces. See [Functionality parity](./docs/functionality-parity.md).
+Plain `omq` now launches the interactive Qwen Code engine instead of only printing help:
+
+```bash
+omq                 # auto: detached tmux when interactive+available, direct otherwise
+omq --tmux          # force an OMQ-managed detached tmux session, falling back to direct if tmux fails
+omq --direct        # run qwen directly without tmux/HUD management
+OMQ_LAUNCH_POLICY=direct omq
+OMQ_LAUNCH_POLICY=tmux omq
+```
+
+When launched from inside an existing tmux pane, `omq` runs Qwen in the current pane with `OMQ_SESSION_ID`/`.omq` state. Outside tmux, supported interactive terminals get a detached tmux session named `omq-*` and then attach to it. Non-interactive shells fall back to direct mode.
+
+## Nessy fork wrapper
+
+If a Qwen Code fork is installed as `nessy`, use:
+
+```bash
+omq-nessy --tmux
+# or with explicit paths:
+NESSY_BIN=/absolute/path/to/nessy NESSY_HOME="$HOME/.nessy" omq-nessy
+```
+
+`omq-nessy` sets `QWEN_BIN`, `QWEN_HOME`, `NESSY_HOME`, and `OMQ_ENGINE=nessy`, then delegates to `omq` so setup, launch, hooks, and `omq exec` use the fork through the Qwen-compatible surfaces.
+
+## Packaged workflow skills
+
+`omq setup` generates Qwen skill/command adapters for the first-party workflow skills packaged under `skills/workflows/*/SKILL.md`. These files are copied into this package (not symlinked and not read from another local checkout), so users do not need extra tooling installed. Generic/user skills and deprecated repo-local shims are intentionally not included.
+
+## Functionality status
+
+Use `omq compat` to inspect the current `oh-my-qwen` status matrix. Use `omq qwen-features` to detect local Qwen surfaces, including experimental `qwen serve`; MVP setup and exec intentionally stay on stable extension/hooks/headless surfaces. See [Functionality status](./docs/functionality-parity.md).
 
 ## Known limitations
 
 - MVP does **not** fork or patch `qwen-code`.
 - MVP does **not** depend on experimental `qwen serve`; `omq exec` uses `qwen -p --output-format stream-json`.
+- Interactive launch supports direct, inside-tmux, and detached-tmux modes; HUD support is intentionally lightweight.
 - Team mode is external-process-first. Write-heavy orchestration should use tmux + git worktrees rather than implicit in-session fork subagents.
 - Qwen MCP servers are stubbed for state/memory discovery and will expand after the core setup/hook/exec surface stabilizes.
 

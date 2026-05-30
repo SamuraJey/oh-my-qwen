@@ -38,6 +38,7 @@ cd /path/to/your/project
 omq setup --scope project --dry-run
 omq setup --scope project
 omq doctor --scope project
+omq --tmux
 ```
 
 User installation writes under `${QWEN_HOME:-~/.qwen}`:
@@ -68,6 +69,40 @@ If `qwen` is not on `PATH`, set:
 ```bash
 export QWEN_BIN=/absolute/path/to/qwen
 ```
+
+## Interactive launch modes
+
+`omq` launches Qwen Code interactively with a tmux-aware policy:
+
+```bash
+omq                 # auto policy
+omq --tmux          # detached tmux session, then attach
+omq --direct        # no tmux
+OMQ_LAUNCH_POLICY=tmux omq
+OMQ_LAUNCH_POLICY=direct omq
+```
+
+Policy behavior:
+
+- inside an existing tmux pane: run Qwen in that pane;
+- outside tmux with an attached TTY and tmux available: create/attach an `omq-*` detached tmux session;
+- non-interactive or no tmux: run Qwen directly.
+
+## Nessy fork wrapper
+
+If a Qwen-compatible fork binary is named `nessy`:
+
+```bash
+omq-nessy --tmux
+```
+
+For non-standard locations:
+
+```bash
+NESSY_BIN=/absolute/path/to/nessy NESSY_HOME="$HOME/.nessy" omq-nessy
+```
+
+The wrapper exports `QWEN_BIN`, `QWEN_HOME`, `NESSY_HOME`, and `OMQ_ENGINE=nessy` before delegating to `omq`.
 
 ## Feature/parity checks
 

@@ -14,6 +14,8 @@ import { completeGoal, createDeepInterviewContext, createGoal, createRalplanArti
 import { runMcpServer } from '../mcp/server.js';
 import { COMPAT_ROWS, compatSummary, renderCompatMarkdown } from '../compat/matrix.js';
 import { probeQwenFeatures, renderQwenFeatures } from '../qwen/features.js';
+import { OMQ_SKILL_CATALOG } from '../qwen/workflow-skill-catalog.js';
+import { runInteractiveQwenLaunch } from '../launch/qwen-launch.js';
 
 interface ParsedGlobal {
   cwd: string;
@@ -25,7 +27,7 @@ interface ParsedGlobal {
 }
 
 function help(): string {
-  return `oh-my-qwen ${VERSION}\n\nUsage:\n  omq help\n  omq version [--json]\n  omq doctor [--json] [--scope user|project]\n  omq probe --json\n  omq status [--json] [--scope user|project]\n  omq setup --scope user|project [--dry-run] [--force-project]\n  omq uninstall --scope user|project [--dry-run]\n  omq exec [-C dir] [--approval-mode MODE] [--model MODEL] [--continue] [--resume [ID]] "prompt"\n  omq deep-interview "task"\n  omq ralplan "task"\n  omq goal start|complete|block|fail "objective"\n  omq team plan "task"\n\nMVP constraints: no qwen-code fork, .omq state root, Qwen hooks via marker-owned settings entries.\n`;
+  return `oh-my-qwen ${VERSION}\n\nUsage:\n  omq help\n  omq version [--json]\n  omq doctor [--json] [--scope user|project]\n  omq probe --json\n  omq status [--json] [--scope user|project]\n  omq setup --scope user|project [--dry-run] [--force-project]\n  omq uninstall --scope user|project [--dry-run]\n  omq [launch] [--tmux|--direct] [qwen args...]\n  omq resume [qwen resume args...]\n  omq exec [-C dir] [--approval-mode MODE] [--model MODEL] [--continue] [--resume [ID]] "prompt"\n  omq list [--json]\n  omq deep-interview "task"\n  omq ralplan "task"\n  omq goal start|complete|block|fail "objective"\n  omq team plan "task"\n\nLaunch policy: OMQ_LAUNCH_POLICY=auto|direct|tmux, or CLI --direct/--tmux. Default is detached tmux on supported interactive terminals, direct otherwise; inside tmux runs in the current pane.\nMVP constraints: no qwen-code fork, .omq state root, Qwen hooks via marker-owned settings entries.\n`;
 }
 
 function takeFlag(args: string[], name: string): string | undefined {
@@ -76,10 +78,16 @@ function localInstallText(): string {
    # or: omq setup --scope user # writes ${'${QWEN_HOME:-~/.qwen}'}/extensions/oh-my-qwen
 7. qwen /extensions          # optional: verify extension visibility inside Qwen Code
 8. omq exec "Reply with exactly OMQ-EXEC-OK"
+9. omq --tmux                # interactive Qwen in an OMQ-managed tmux session
+   omq --direct              # interactive Qwen without tmux
 
 Safe dry-run/uninstall:
 - omq setup --scope project --dry-run
 - omq uninstall --scope project
+
+Nessy fork wrapper:
+- omq-nessy --tmux
+- env NESSY_BIN=/path/to/nessy NESSY_HOME=$HOME/.nessy omq-nessy
 
 No qwen-code fork is modified. Setup owns only generated oh-my-qwen extension files and hooks containing --omq-owned=oh-my-qwen.
 `;
@@ -160,9 +168,39 @@ async function commandGoal(args: string[], cwd: string): Promise<number> {
   return 0;
 }
 
+async function commandLaunch(global: ParsedGlobal, args: string[]): Promise<number> {
+  const result = await runInteractiveQwenLaunch(args, { cwd: global.cwd });
+  if (global.json) printJson(result);
+  return result.exitCode;
+}
+
+function commandList(json: boolean): number {
+  const value = {
+    skills: OMQ_SKILL_CATALOG,
+    count: OMQ_SKILL_CATALOG.length,
+  };
+  if (json) {
+    printJson(value);
+  } else {
+    process.stdout.write(`oh-my-qwen skills (${value.count})\n`);
+    for (const entry of value.skills) process.stdout.write(`- ${entry.name} [${entry.status}]: ${entry.description}\n`);
+  }
+  return 0;
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const global = parseGlobal(argv);
-  const [cmd = 'help', ...args] = global.rest;
+  const [rawCmd, ...args] = global.rest;
+  const cmd = !rawCmd
+    ? 'launch'
+    : rawCmd === '--help' || rawCmd === '-h'
+      ? 'help'
+      : rawCmd === '--version' || rawCmd === '-v'
+        ? 'version'
+        : rawCmd.startsWith('-')
+          ? 'launch'
+          : rawCmd;
+  const launchArgs = rawCmd && rawCmd.startsWith('-') && cmd === 'launch' ? [rawCmd, ...args] : args;
 
   switch (cmd) {
     case 'help':
@@ -198,6 +236,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       else process.stdout.write(renderQwenFeatures(probe));
       return 0;
     }
+    case 'list':
+      return commandList(global.json);
     case 'install-local':
       process.stdout.write(localInstallText());
       return 0;
@@ -218,6 +258,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       process.stdout.write(formatHookOutput(await handleHook(parseHookInput(raw))));
       return 0;
     }
+    case 'launch':
+      return commandLaunch(global, launchArgs);
+    case 'resume':
+      return commandLaunch(global, ['--resume', ...launchArgs]);
     case 'exec':
       return commandExec(global, args);
     case 'deep-interview':

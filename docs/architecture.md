@@ -22,5 +22,6 @@ State is written under `.omq/`:
 ├── goals/
 ├── reviews/
 ├── logs/
+├── runtime/tmux-env/
 └── backups/
 ```

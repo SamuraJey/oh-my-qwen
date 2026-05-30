@@ -4,7 +4,8 @@
   "description": "Workflow harness and orchestration layer for Qwen Code CLI",
   "type": "module",
   "bin": {
-    "omq": "dist/cli/omq.js"
+    "omq": "dist/cli/omq.js",
+    "omq-nessy": "dist/cli/omq-nessy.js"
   },
   "engines": {
     "node": ">=22"
@@ -22,7 +23,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run clean && tsc -p tsconfig.json",
     "test": "npm run build && node --test \"dist/**/*.test.js\"",
     "prepack": "npm run build",
     "pack:smoke": "npm pack --dry-run",

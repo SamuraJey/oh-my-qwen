@@ -12,7 +12,7 @@ test('compat matrix covers required parity areas', () => {
 
 test('compat markdown renders evidence and qwen serve policy', () => {
   const md = renderCompatMarkdown();
-  assert.match(md, /oh-my-codex ↔ oh-my-qwen/);
+  assert.match(md, /oh-my-qwen functionality status/);
   assert.match(md, /qwen-serve-experimental/);
   assert.match(md, /opt-in|experimental|Stage 1/i);
 });
