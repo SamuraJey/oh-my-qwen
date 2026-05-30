@@ -17,6 +17,20 @@ omq setup --scope project
 omq exec "Reply with exactly OMQ-EXEC-OK"
 ```
 
+## Local install
+
+From this repository checkout:
+
+```bash
+npm install
+npm test
+npm install -g .
+omq setup --scope project
+omq doctor --scope project
+```
+
+See [Local installation](./docs/local-install.md) for project/user scope setup, dry-run, uninstall, and real Qwen smoke tests.
+
 `omq setup` materializes a Qwen extension at either `~/.qwen/extensions/oh-my-qwen` or `.qwen/extensions/oh-my-qwen`, then upserts only OMQ-owned hook entries in the selected Qwen `settings.json`.
 
 ## Commands
@@ -27,6 +41,9 @@ omq version
 omq doctor [--json] [--scope user|project]
 omq probe --json
 omq status --json
+omq compat [--json]
+omq qwen-features [--json]
+omq install-local
 omq setup --scope user|project [--dry-run]
 omq uninstall --scope user|project [--dry-run]
 omq exec [-C dir] [--approval-mode default|plan|auto_edit|auto-edit|yolo] "prompt"
@@ -35,6 +52,10 @@ omq ralplan "task"
 omq goal start "objective"
 omq team plan "task"
 ```
+
+## Functionality parity
+
+Use `omq compat` to inspect the current `oh-my-codex` ↔ `oh-my-qwen` parity matrix. Use `omq qwen-features` to detect local Qwen surfaces, including experimental `qwen serve`; MVP setup and exec intentionally stay on stable extension/hooks/headless surfaces. See [Functionality parity](./docs/functionality-parity.md).
 
 ## Known limitations
 

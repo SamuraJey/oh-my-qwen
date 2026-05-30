@@ -12,6 +12,8 @@ import { setup, uninstall } from './setup.js';
 import { runQwenExec } from '../exec/qwen-exec.js';
 import { completeGoal, createDeepInterviewContext, createGoal, createRalplanArtifacts, createTeamPlan } from '../workflows/artifacts.js';
 import { runMcpServer } from '../mcp/server.js';
+import { COMPAT_ROWS, compatSummary, renderCompatMarkdown } from '../compat/matrix.js';
+import { probeQwenFeatures, renderQwenFeatures } from '../qwen/features.js';
 
 interface ParsedGlobal {
   cwd: string;
@@ -59,6 +61,28 @@ async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   return Buffer.concat(chunks).toString('utf8');
+}
+
+
+function localInstallText(): string {
+  return `Local oh-my-qwen install (from repository checkout):
+
+1. cd /home/samuraj/Documents/code/oh-my-qwen
+2. npm install
+3. npm test
+4. npm install -g .
+5. omq doctor --scope project
+6. omq setup --scope project   # writes .qwen/ + .omq/ in the current project
+   # or: omq setup --scope user # writes ${'${QWEN_HOME:-~/.qwen}'}/extensions/oh-my-qwen
+7. qwen /extensions          # optional: verify extension visibility inside Qwen Code
+8. omq exec "Reply with exactly OMQ-EXEC-OK"
+
+Safe dry-run/uninstall:
+- omq setup --scope project --dry-run
+- omq uninstall --scope project
+
+No qwen-code fork is modified. Setup owns only generated oh-my-qwen extension files and hooks containing --omq-owned=oh-my-qwen.
+`;
 }
 
 function printJson(value: unknown): void {
@@ -162,6 +186,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       else process.stdout.write(renderDoctorReport(report));
       return report.ok ? 0 : 1;
     }
+    case 'compat': {
+      if (global.json) printJson({ summary: compatSummary(), rows: COMPAT_ROWS });
+      else process.stdout.write(renderCompatMarkdown());
+      return 0;
+    }
+    case 'qwen-features':
+    case 'features': {
+      const probe = probeQwenFeatures();
+      if (global.json) printJson(probe);
+      else process.stdout.write(renderQwenFeatures(probe));
+      return 0;
+    }
+    case 'install-local':
+      process.stdout.write(localInstallText());
+      return 0;
     case 'setup': {
       const result = await setup({ scope: global.scope, cwd: global.cwd, dryRun: global.dryRun, forceProject: global.forceProject });
       if (global.json) printJson(result);
